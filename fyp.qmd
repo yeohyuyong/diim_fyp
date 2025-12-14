@@ -1,0 +1,506 @@
+---
+title: "DIIM"
+format: html
+page-layout: full
+editor: visual
+execute:
+  echo: false
+---
+
+### Download libraries
+
+```{r}
+#| echo: true
+#| warning: false
+library(openxlsx)
+library(ggplot2)
+library(reshape2)
+library(gridExtra)
+library(dplyr)
+library(tidyverse)
+source("functions.R")
+```
+
+```{r}
+#| echo: true
+
+data = download_data()
+A = data$A
+x = data$x
+c = data$c
+q0 = data$q0
+c_star = data$c_star
+A_star = data$A_star
+
+  
+DIIM_model = DIIM(q0,A_star,c_star,x,lockdown_duration=55, total_duration=751)
+```
+
+## Inoperability Plot
+
+```{r}
+#| echo: true
+# Calculate maximum inoperability for each sector over time
+inoperability_evolution = DIIM_model$inoperability_evolution
+max_inoperability <- apply(inoperability_evolution, 1, max)
+
+# Get the order of sectors sorted by descending maximum inoperability
+sorted_indices <- order(max_inoperability, decreasing = TRUE)
+
+# Reorder the inoperability evolution matrix
+sorted_inoperability <- inoperability_evolution[sorted_indices, ]
+
+# Optional: get sector names if available (replace 'sector_names')
+# sector_names_sorted <- sector_names[sorted_indices]
+
+# Setup colors and labels for plotting
+num_sectors <- nrow(sorted_inoperability)
+matplot(t(sorted_inoperability), type = 'l', lty = 1, col = rainbow(num_sectors),
+        xlab = 'Days', ylab = 'Inoperability',
+        main = 'Inoperability Evolution')
+legend('topright', legend = paste('Sector', sorted_indices), col = rainbow(num_sectors), lty = 1, cex = 0.6)
+
+```
+
+## Economic Loss Plot
+
+```{r}
+#| echo: true
+
+
+EL_evolution = DIIM_model$EL_evolution
+max_econ_loss <- apply(EL_evolution, 1, max)
+sorted_indices <- order(max_econ_loss, decreasing = TRUE)
+sorted_econ_loss <- EL_evolution[sorted_indices, ]
+
+
+num_sectors <- nrow(sorted_econ_loss)
+matplot(t(sorted_econ_loss), type = 'l', lty = 1, col = rainbow(num_sectors),
+        xlab = 'Days', ylab = 'Economic Loss',
+        main = 'Economic Loss Evolution')
+legend('topright', legend = paste('Sector', sorted_indices), col = rainbow(num_sectors), lty = 1, cex = 0.6)
+```
+
+## Sensitivity Analysis
+
+### Impact of altering lockdown duration
+
+```{r}
+#| echo: true
+output_40_days = DIIM(q0,A_star,c_star,x,lockdown_duration=40, total_duration=751)
+economics_loss_40_days = as.matrix(output_40_days$EL_end)
+
+output_55_days = DIIM(q0,A_star,c_star,x,lockdown_duration=55, total_duration=751)
+economics_loss_55_days = as.matrix(output_55_days$EL_end)
+
+output_70_days = DIIM(q0,A_star,c_star,x,lockdown_duration=70, total_duration=751)
+economics_loss_70_days = as.matrix(output_70_days$EL_end)
+```
+
+## Risk Management Scenario Analysis
+
+### Scenario 1: assume adopt no risk management policy(set policy option j = 0)
+
+In the first hypothetical scenario, assume that policy option j = 0, that is, no risk management measures are taken, and all inoperability and economic losses come from the calculation of the DIIM model result in this paper, which is the real shock occurrence under the DIIM model. Therefore, the economic loss after taking risk management is equal to the economic loss without taking management measures and the execution cost is 0. At the same time, we set scenario 1 as the baseline scenario to facilitate subsequent analysis:
+
+$$
+\delta_j = \Gamma_{w[0]} - \Gamma_{w[j]} - \gamma_j = 0\,\text{ }
+$$ {#eq-1}
+
+### Scenario 2: assume adopt risk management policy (set policy option j = 1)
+
+```{r}
+#| echo: true
+# evolution of the inoperability under policy 1 where the inoperability is 95% of the original inoperability
+
+time_steps = 751
+inoperability_evolution_policy_one = matrix(NA,nrow = num_sectors,ncol=time_steps)
+inoperability_evolution_policy_one[,1] = q0
+
+for (t in 2:time_steps) {
+  if (t<=55){
+    inoperability_evolution_policy_one[,t] = (inoperability_evolution_policy_one[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_one[,t-1] + c_star - inoperability_evolution_policy_one[,t-1]))*0.95
+  }
+  else { # after 55 days, c* become 0 as no more external shock
+    inoperability_evolution_policy_one[,t] = (inoperability_evolution_policy_one[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_one[,t-1] - inoperability_evolution_policy_one[,t-1]))*0.95
+  }
+}
+```
+
+```{r}
+#| echo: true
+# calculating economic loss under policy 1
+EL_evolution_policy_one = t(apply(inoperability_evolution_policy_one, 1, cumsum)) * as.vector(x_daily)
+
+total_economic_loss_policy_one = sum(EL_evolution_policy_one[,ncol(EL_evolution_policy_one)])
+total_economic_loss_policy_one
+```
+
+In this scenario, the paper assumed risk management policy 1 that the government will spend 1 billion SGD in advance for risk control to prevent the impact of the sudden spread of the pandemic on the economic system as much as possible. Moreover, suppose that this advanced risk management policy will reduce the impact of the pandemic by 5% every day, and when it acts on the inoperability level, it will only suffer the impact of the 95% degree of original inoperability level each day. Bringing the changed degree of inoperability back into the DIIM model for further analysis, it is found that under the implementation of risk management policy 1, the overall economic loss is 725.3833 million SGD, compared with the previous loss of 11181.38 million SGD, the overall loss is reduced by 10456 million SGD. Therefore, the net benefit is 9456 million SGD, and the cost-benefit ratio is 0.0956389. The specific calculation results are as follows:
+
+$$
+\begin{align}\delta_1 &= \Gamma_{w[0]} - \Gamma_{w[1]} - \gamma_1 = 26967.3 - 2323.01 - 1000 = 23644.29\, \textit{million SGD}  \\\lambda_{12} &= \frac{\gamma_1}{\Gamma_{w[0]} - \Gamma_{w[1]}} = \frac{1000}{26967.3 - 2323.01} = 0.04057735 \end{align}
+$$
+
+### Scenario 3: assume adopt risk management policy (set policy option j = 2)
+
+```{r}
+#| echo: true
+inoperability_evolution_policy_two = matrix(NA,nrow = num_sectors,ncol=time_steps)
+inoperability_evolution_policy_two[,1] = q0
+
+for (t in 2:time_steps) {
+  if (t<=55-20){
+    inoperability_evolution_policy_two[,t] = (inoperability_evolution_policy_two[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_two[,t-1] + c_star - inoperability_evolution_policy_two[,t-1]))
+  }
+  else { # after 55 days, c* become 0 as no more external shock
+    inoperability_evolution_policy_two[,t] = (inoperability_evolution_policy_two[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_two[,t-1] - inoperability_evolution_policy_two[,t-1]))
+  }
+}
+```
+
+```{r}
+#| echo: true
+# calculating economic loss under policy 2
+EL_evolution_policy_two = t(apply(inoperability_evolution_policy_two, 1, cumsum)) * as.vector(x_daily)
+
+total_economic_loss_policy_two = sum(EL_evolution_policy_two[,ncol(EL_evolution_policy_two)])
+total_economic_loss_policy_two
+```
+
+Based on risk management policy 2, it assumed that an additional 1 billion SGD investment cost will be added to the expenditure of early prevention and control, resulting in a total investment cost of 2 billion SGD. This approach is to prevent the current and future cascading effects of a wider pandemic on Singapore and to predict the current year’s budget in advance for risk prevention and control. Based on this, the paper wants to calculate the impact of the additional 1 billion SGD of investment cost on the impact of the Singapore pandemic, assuming that this additional expenditure cost can reducing the lockdown period from the initial 55 days to 30 days. The overall economic loss will be reduced from 11181.38 million SGD without risk management measures to 7814.6 million SGD. Therefore, the net benefit is 1366.78 million SGD, the cost-benefit ratio is 0.5940394. The specific calculation process is as follows:
+
+$$
+\begin{align*}\delta_2 &= \Gamma_{w[0]} - \Gamma_{w[2]} - \gamma_2 = 26967.3 - 17564.99 - 2000 = 7402.31\, \textit{million SGD} \\\lambda_{12} &= \frac{\gamma_2}{\Gamma_{w[0]} - \Gamma_{w[2]}} = \frac{2000}{26967.3 - 17564.99} = 0.2127137\end{align*}
+$$
+
+For the risk control management 1, the $\lambda_{12}$ is 0.0956389 which indicates the government could obtain 1 SGD of benefit for each 0.0956389 SGD of investment cost. As with risk management policy 2, in which the $\lambda_{12}$ is 0.5940394, the government could obtain 1 SGD of benefit for each 0.5940394 SGD of investment cost. Compared with these two policies, the first risk management measure is better, that is, it has a smaller investment cost under the unit benefit.
+
+# Comparison between ML and Traditional Key Sectors Identified
+
+We assume that the risk management policy is able to reduce the initial inoperability of the key sectors by 0.9 of its original
+
+```{r}
+#| echo: true
+# ml_key_sectors = c(3,2,5,8,10,4,7)
+# trad_key_sectors = c(2,3,5,12,8,9,10)
+
+
+
+
+lockdown_duration_vals = c(10,20,30,40)
+total_duration_vals = c(300,400,500,600)
+
+nsim = length(lockdown_duration_vals) * length(total_duration_vals)
+
+col_names = c("lockdown_duration",
+    "total_duration",
+    "model_tot_econ_loss",
+    "model_diim_tot_econ_loss",
+    "model_ml_tot_econ_loss")
+
+sim_matrix = matrix(data=NA, nrow=nsim , ncol=5)
+colnames(sim_matrix) = col_names
+
+row_idx = 1
+for (l_duration in lockdown_duration_vals){
+  for (t_duration in total_duration_vals){
+    res = simulation_ml_vs_diim(q0, A_star,c_star,x,lockdown_duration=l_duration, total_duration=t_duration)
+    res = matrix(unlist(res), ncol=5)
+    sim_matrix[row_idx,] = res
+    
+    row_idx = row_idx + 1
+  }
+}
+```
+
+# Comparing No Intervention, DIIM, and ML Economic Loss Models
+
+```{r}
+df <- as.data.frame(sim_matrix)
+df$lockdown_duration <- factor(df$lockdown_duration)
+```
+
+```{r}
+
+df_long <- melt(df, 
+                id.vars = c("lockdown_duration", "total_duration"),
+                variable.name = "model",
+                value.name = "economic_loss")
+
+plot1 <- ggplot(df_long, aes(x = total_duration, y = economic_loss, 
+                              color = model, linetype = model)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~lockdown_duration, labeller = labeller(
+    lockdown_duration = c("10" = "Lockdown: 10 days",
+                          "20" = "Lockdown: 20 days",
+                          "30" = "Lockdown: 30 days",
+                          "40" = "Lockdown: 40 days"))) +
+  scale_color_manual(name = "Model",
+                     values = c("model_tot_econ_loss" = "#E74C3C",
+                               "model_diim_tot_econ_loss" = "#3498DB",
+                               "model_ml_tot_econ_loss" = "#2ECC71"),
+                     labels = c("model_tot_econ_loss" = "No Intervention",
+                               "model_diim_tot_econ_loss" = "DIIM",
+                               "model_ml_tot_econ_loss" = "ML Model")) +
+  scale_linetype_manual(name = "Model",
+                       values = c("model_tot_econ_loss" = "solid",
+                                 "model_diim_tot_econ_loss" = "dashed",
+                                 "model_ml_tot_econ_loss" = "dotted"),
+                       labels = c("model_tot_econ_loss" = "No Intervention",
+                                 "model_diim_tot_econ_loss" = "DIIM",
+                                 "model_ml_tot_econ_loss" = "ML Model")) +
+  labs(title = "Economic Loss Comparison: Impact of Total Duration on Models",
+       x = "Total Duration (days)",
+       y = "Economic Loss ($)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        legend.position = "bottom",
+        panel.grid.major = element_line(color = "gray90"))
+
+print(plot1)
+```
+
+```{r}
+
+# No Intervention Model Heatmap
+heatmap_data1 <- df %>%
+  select(lockdown_duration, total_duration, model_tot_econ_loss) %>%
+  pivot_wider(names_from = total_duration, values_from = model_tot_econ_loss)
+
+heatmap_matrix1 <- as.matrix(heatmap_data1[, -1])
+rownames(heatmap_matrix1) <- heatmap_data1$lockdown_duration
+
+# DIIM Model Heatmap
+heatmap_data2 <- df %>%
+  select(lockdown_duration, total_duration, model_diim_tot_econ_loss) %>%
+  pivot_wider(names_from = total_duration, values_from = model_diim_tot_econ_loss)
+
+heatmap_matrix2 <- as.matrix(heatmap_data2[, -1])
+rownames(heatmap_matrix2) <- heatmap_data2$lockdown_duration
+
+# ML Model Heatmap
+heatmap_data3 <- df %>%
+  select(lockdown_duration, total_duration, model_ml_tot_econ_loss) %>%
+  pivot_wider(names_from = total_duration, values_from = model_ml_tot_econ_loss)
+
+heatmap_matrix3 <- as.matrix(heatmap_data3[, -1])
+rownames(heatmap_matrix3) <- heatmap_data3$lockdown_duration
+
+# Create heatmap data frame for ggplot2
+heatmap_long <- df_long %>%
+  mutate(lockdown_duration = as.character(lockdown_duration),
+         total_duration = as.character(total_duration))
+
+plot2 <- ggplot(heatmap_long, aes(x = total_duration, y = lockdown_duration, 
+                                   fill = economic_loss)) +
+  geom_tile(color = "white", size = 0.5) +
+  facet_wrap(~model, labeller = labeller(
+    model = c("model_tot_econ_loss" = "No Intervention",
+             "model_diim_tot_econ_loss" = "DIIM Model",
+             "model_ml_tot_econ_loss" = "ML Model"))) +
+  scale_fill_gradient(low = "#ECF0F1", high = "#C0392B",
+                      name = "Economic\nLoss ($)") +
+  labs(title = "Economic Loss Heatmap Across Models",
+       x = "Total Duration (days)",
+       y = "Lockdown Duration (days)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(face = "bold"))
+
+print(plot2)
+```
+
+```{r}
+# Calculate improvements
+
+df$ml_improvement <- df$model_tot_econ_loss - df$model_ml_tot_econ_loss
+df$diim_improvement <- df$model_tot_econ_loss - df$model_diim_tot_econ_loss
+df$ml_pct_improvement <- (df$ml_improvement / df$model_tot_econ_loss) * 100
+df$diim_pct_improvement <- (df$diim_improvement / df$model_tot_econ_loss) * 100
+
+df_improvement <- df %>%
+  select(lockdown_duration, total_duration, ml_improvement, diim_improvement) %>%
+  melt(id.vars = c("lockdown_duration", "total_duration"),
+       variable.name = "model",
+       value.name = "loss_reduction")
+
+plot4 <- ggplot(df_improvement, aes(x = factor(total_duration), y = loss_reduction, 
+                                     fill = model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~lockdown_duration, labeller = labeller(
+    lockdown_duration = c("10" = "Lockdown: 10 days",
+                          "20" = "Lockdown: 20 days",
+                          "30" = "Lockdown: 30 days",
+                          "40" = "Lockdown: 40 days"))) +
+  scale_fill_manual(name = "Model",
+                   values = c("ml_improvement" = "#2ECC71",
+                             "diim_improvement" = "#3498DB"),
+                   labels = c("ml_improvement" = "ML Model",
+                             "diim_improvement" = "DIIM")) +
+  labs(title = "Economic Loss Reduction: Model Improvements vs No Intervention",
+       x = "Total Duration (days)",
+       y = "Loss Reduction ($)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        panel.grid.major.y = element_line(color = "gray90"))
+
+print(plot4)
+```
+
+```{r}
+
+df$ml_pct_vs_no_int <- (df$ml_improvement / df$model_tot_econ_loss) * 100
+
+pct_improvement_data <- df %>%
+  select(lockdown_duration, total_duration, ml_pct_vs_no_int) %>%
+  mutate(lockdown_duration = as.character(lockdown_duration),
+         total_duration = as.character(total_duration))
+
+plot5 <- ggplot(pct_improvement_data, aes(x = total_duration, y = lockdown_duration, 
+                                           fill = ml_pct_vs_no_int)) +
+  geom_tile(color = "white", size = 0.8) +
+  geom_text(aes(label = sprintf("%.2f%%", ml_pct_vs_no_int)), 
+            color = "black", size = 3) +
+  scale_fill_gradient(low = "#E8F8F5", high = "#27AE60",
+                      name = "% Improvement") +
+  labs(title = "ML Model: Percentage Improvement vs No Intervention",
+       x = "Total Duration (days)",
+       y = "Lockdown Duration (days)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        axis.text = element_text(size = 11))
+
+print(plot5)
+```
+
+```{r}
+
+df$ml_pct_vs_no_int <- df$ml_pct_improvement - df$diim_pct_improvement
+
+pct_improvement_data <- df %>%
+  select(lockdown_duration, total_duration, ml_pct_vs_no_int) %>%
+  mutate(lockdown_duration = as.character(lockdown_duration),
+         total_duration = as.character(total_duration))
+
+plot5 <- ggplot(pct_improvement_data, aes(x = total_duration, y = lockdown_duration, 
+                                           fill = ml_pct_vs_no_int)) +
+  geom_tile(color = "white", size = 0.8) +
+  geom_text(aes(label = sprintf("%.2f%%", ml_pct_vs_no_int)), 
+            color = "black", size = 3) +
+  scale_fill_gradient(low = "#E8F8F5", high = "#27AE60",
+                      name = "% Improvement") +
+  labs(title = "Difference in Improvement Between DIIM and ML Model",
+       x = "Total Duration (days)",
+       y = "Lockdown Duration (days)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        axis.text = element_text(size = 11))
+
+print(plot5)
+```
+
+```{r}
+
+plot6 <- ggplot(df, aes(x = factor(total_duration), 
+                        y = model_ml_tot_econ_loss,
+                        color = lockdown_duration,
+                        group = lockdown_duration)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  labs(title = "ML Model Economic Loss: Interaction Plot",
+       subtitle = "Shows combined effect of lockdown duration and total duration",
+       x = "Total Duration (days)",
+       y = "Economic Loss ($)",
+       color = "Lockdown\nDuration (days)") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        panel.grid.major = element_line(color = "gray90"))
+
+print(plot6)
+ggsave("plot6_interaction_plot.png", plot6, width = 10, height = 6)
+```
+
+```{r}
+
+df_long_box <- df_long %>%
+  mutate(lockdown_duration = factor(lockdown_duration))
+
+plot7 <- ggplot(df_long_box, aes(x = model, y = economic_loss, fill = model)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~lockdown_duration, labeller = labeller(
+    lockdown_duration = c("10" = "Lockdown: 10 days",
+                          "20" = "Lockdown: 20 days",
+                          "30" = "Lockdown: 30 days",
+                          "40" = "Lockdown: 40 days"))) +
+  scale_fill_manual(values = c("model_tot_econ_loss" = "#E74C3C",
+                               "model_trad_tot_econ_loss" = "#3498DB",
+                               "model_ml_tot_econ_loss" = "#2ECC71"),
+                    labels = c("model_tot_econ_loss" = "No Intervention",
+                              "model_trad_tot_econ_loss" = "Traditional",
+                              "model_ml_tot_econ_loss" = "ML Model")) +
+  scale_x_discrete(labels = c("model_tot_econ_loss" = "No\nIntervention",
+                             "model_trad_tot_econ_loss" = "Traditional",
+                             "model_ml_tot_econ_loss" = "ML Model")) +
+  labs(title = "Distribution of Economic Loss Across Models",
+       x = "Model Type",
+       y = "Economic Loss ($)") +
+  guides(fill = FALSE) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        axis.text.x = element_text(size = 9))
+
+print(plot7)
+```
+
+```{r}
+summary_stats <- df %>%
+  select(lockdown_duration, model_tot_econ_loss, model_trad_tot_econ_loss, 
+         model_ml_tot_econ_loss, ml_improvement, trad_improvement, ml_pct_improvement) %>%
+  group_by(lockdown_duration) %>%
+  summarise(
+    Mean_NoIntervention = mean(model_tot_econ_loss),
+    Mean_Traditional = mean(model_trad_tot_econ_loss),
+    Mean_ML = mean(model_ml_tot_econ_loss),
+    Mean_ML_Improvement = mean(ml_improvement),
+    Mean_Trad_Improvement = mean(trad_improvement),
+    Mean_ML_Pct = mean(ml_pct_improvement),
+    .groups = 'drop'
+  )
+
+print("\n=== SUMMARY STATISTICS BY LOCKDOWN DURATION ===\n")
+print(summary_stats)
+```
+
+```{r}
+lockdown_duration_vals = seq(10,55)
+total_duration_vals = seq(300,800)
+
+nsim = length(lockdown_duration_vals) * length(total_duration_vals)
+
+col_names = c("lockdown_duration",
+    "total_duration",
+    "model_tot_econ_loss",
+    "model_trad_tot_econ_loss",
+    "model_ml_tot_econ_loss")
+
+sim_matrix = matrix(data=NA, nrow=nsim , ncol=5)
+colnames(sim_matrix) = col_names
+
+row_idx = 1
+for (l_duration in lockdown_duration_vals){
+  for (t_duration in total_duration_vals){
+    res = simulation_ml_vs_diim(q0, A_star,c_star,x,lockdown_duration=l_duration, total_duration=t_duration)
+    res = matrix(unlist(res), ncol=5)
+    sim_matrix[row_idx,] = res
+    
+    row_idx = row_idx + 1
+  }
+}
+```
+
+```{r}
+
+```
