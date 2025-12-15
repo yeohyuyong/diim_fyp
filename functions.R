@@ -93,7 +93,7 @@ download_data = function(){
 
 
 
-DIIM = function(q0, A_star,c_star,x,lockdown_duration, total_duration,key_sectors=NULL) {
+DIIM = function(q0, A_star,c_star,x,lockdown_duration, total_duration,key_sectors=NULL,risk_management=1) {
   
   a_ii = diag(A_star)
   T = total_duration
@@ -117,11 +117,11 @@ DIIM = function(q0, A_star,c_star,x,lockdown_duration, total_duration,key_sector
   
   for (t in 2:total_duration) {
     if (t <= lockdown_duration) {
-      inoperability_evolution[, t] = inoperability_evolution[, t - 1] + K %*% (A_star %*% inoperability_evolution[, t - 1] + c_star - inoperability_evolution[, t - 1])
+      inoperability_evolution[, t] = inoperability_evolution[, t - 1] + K %*% (A_star %*% inoperability_evolution[, t - 1] + c_star - inoperability_evolution[, t - 1]) * risk_management
     }
     else {
       # after lockdown c* become 0 as no more external shock
-      inoperability_evolution[, t] = inoperability_evolution[, t - 1] + K %*% (A_star %*% inoperability_evolution[, t -1] - inoperability_evolution[, t - 1])
+      inoperability_evolution[, t] = inoperability_evolution[, t - 1] + K %*% (A_star %*% inoperability_evolution[, t -1] - inoperability_evolution[, t - 1]) * risk_management
     }
   }
   
