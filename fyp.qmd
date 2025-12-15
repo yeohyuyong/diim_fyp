@@ -112,28 +112,11 @@ $$ {#eq-1}
 ```{r}
 #| echo: true
 # evolution of the inoperability under policy 1 where the inoperability is 95% of the original inoperability
+policy_j_0 = DIIM(q0, A_star,c_star,x,lockdown_duration=55, total_duration=751,risk_management=1)
+policy_j_1 = DIIM(q0, A_star,c_star,x,lockdown_duration=55, total_duration=751,risk_management=0.95)
 
-time_steps = 751
-inoperability_evolution_policy_one = matrix(NA,nrow = num_sectors,ncol=time_steps)
-inoperability_evolution_policy_one[,1] = q0
-
-for (t in 2:time_steps) {
-  if (t<=55){
-    inoperability_evolution_policy_one[,t] = (inoperability_evolution_policy_one[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_one[,t-1] + c_star - inoperability_evolution_policy_one[,t-1]))*0.95
-  }
-  else { # after 55 days, c* become 0 as no more external shock
-    inoperability_evolution_policy_one[,t] = (inoperability_evolution_policy_one[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_one[,t-1] - inoperability_evolution_policy_one[,t-1]))*0.95
-  }
-}
-```
-
-```{r}
-#| echo: true
-# calculating economic loss under policy 1
-EL_evolution_policy_one = t(apply(inoperability_evolution_policy_one, 1, cumsum)) * as.vector(x_daily)
-
-total_economic_loss_policy_one = sum(EL_evolution_policy_one[,ncol(EL_evolution_policy_one)])
-total_economic_loss_policy_one
+policy_j_0$total_economic_loss
+policy_j_1$total_economic_loss
 ```
 
 In this scenario, the paper assumed risk management policy 1 that the government will spend 1 billion SGD in advance for risk control to prevent the impact of the sudden spread of the pandemic on the economic system as much as possible. Moreover, suppose that this advanced risk management policy will reduce the impact of the pandemic by 5% every day, and when it acts on the inoperability level, it will only suffer the impact of the 95% degree of original inoperability level each day. Bringing the changed degree of inoperability back into the DIIM model for further analysis, it is found that under the implementation of risk management policy 1, the overall economic loss is 725.3833 million SGD, compared with the previous loss of 11181.38 million SGD, the overall loss is reduced by 10456 million SGD. Therefore, the net benefit is 9456 million SGD, and the cost-benefit ratio is 0.0956389. The specific calculation results are as follows:
@@ -146,26 +129,9 @@ $$
 
 ```{r}
 #| echo: true
-inoperability_evolution_policy_two = matrix(NA,nrow = num_sectors,ncol=time_steps)
-inoperability_evolution_policy_two[,1] = q0
 
-for (t in 2:time_steps) {
-  if (t<=55-20){
-    inoperability_evolution_policy_two[,t] = (inoperability_evolution_policy_two[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_two[,t-1] + c_star - inoperability_evolution_policy_two[,t-1]))
-  }
-  else { # after 55 days, c* become 0 as no more external shock
-    inoperability_evolution_policy_two[,t] = (inoperability_evolution_policy_two[,t-1] + K %*% (A_star %*% inoperability_evolution_policy_two[,t-1] - inoperability_evolution_policy_two[,t-1]))
-  }
-}
-```
-
-```{r}
-#| echo: true
-# calculating economic loss under policy 2
-EL_evolution_policy_two = t(apply(inoperability_evolution_policy_two, 1, cumsum)) * as.vector(x_daily)
-
-total_economic_loss_policy_two = sum(EL_evolution_policy_two[,ncol(EL_evolution_policy_two)])
-total_economic_loss_policy_two
+policy_j_3 = DIIM(q0, A_star,c_star,x,lockdown_duration=55-20, total_duration=751,risk_management=1)
+policy_j_3$total_economic_loss
 ```
 
 Based on risk management policy 2, it assumed that an additional 1 billion SGD investment cost will be added to the expenditure of early prevention and control, resulting in a total investment cost of 2 billion SGD. This approach is to prevent the current and future cascading effects of a wider pandemic on Singapore and to predict the current year’s budget in advance for risk prevention and control. Based on this, the paper wants to calculate the impact of the additional 1 billion SGD of investment cost on the impact of the Singapore pandemic, assuming that this additional expenditure cost can reducing the lockdown period from the initial 55 days to 30 days. The overall economic loss will be reduced from 11181.38 million SGD without risk management measures to 7814.6 million SGD. Therefore, the net benefit is 1366.78 million SGD, the cost-benefit ratio is 0.5940394. The specific calculation process is as follows:
@@ -184,9 +150,6 @@ We assume that the risk management policy is able to reduce the initial inoperab
 #| echo: true
 # ml_key_sectors = c(3,2,5,8,10,4,7)
 # trad_key_sectors = c(2,3,5,12,8,9,10)
-
-
-
 
 lockdown_duration_vals = c(10,20,30,40)
 total_duration_vals = c(300,400,500,600)
@@ -456,51 +419,48 @@ print(plot7)
 ```
 
 ```{r}
-summary_stats <- df %>%
-  select(lockdown_duration, model_tot_econ_loss, model_trad_tot_econ_loss, 
-         model_ml_tot_econ_loss, ml_improvement, trad_improvement, ml_pct_improvement) %>%
-  group_by(lockdown_duration) %>%
-  summarise(
-    Mean_NoIntervention = mean(model_tot_econ_loss),
-    Mean_Traditional = mean(model_trad_tot_econ_loss),
-    Mean_ML = mean(model_ml_tot_econ_loss),
-    Mean_ML_Improvement = mean(ml_improvement),
-    Mean_Trad_Improvement = mean(trad_improvement),
-    Mean_ML_Pct = mean(ml_pct_improvement),
-    .groups = 'drop'
-  )
-
-print("\n=== SUMMARY STATISTICS BY LOCKDOWN DURATION ===\n")
-print(summary_stats)
+# summary_stats <- df %>%
+#   select(lockdown_duration, model_tot_econ_loss, model_trad_tot_econ_loss, 
+#          model_ml_tot_econ_loss, ml_improvement, trad_improvement, ml_pct_improvement) %>%
+#   group_by(lockdown_duration) %>%
+#   summarise(
+#     Mean_NoIntervention = mean(model_tot_econ_loss),
+#     Mean_Traditional = mean(model_trad_tot_econ_loss),
+#     Mean_ML = mean(model_ml_tot_econ_loss),
+#     Mean_ML_Improvement = mean(ml_improvement),
+#     Mean_Trad_Improvement = mean(trad_improvement),
+#     Mean_ML_Pct = mean(ml_pct_improvement),
+#     .groups = 'drop'
+#   )
+# 
+# print(summary_stats)
 ```
 
 ```{r}
-lockdown_duration_vals = seq(10,55)
-total_duration_vals = seq(300,800)
+# lockdown_duration_vals = seq(10,55)
+# total_duration_vals = seq(300,800)
+# 
+# nsim = length(lockdown_duration_vals) * length(total_duration_vals)
+# 
+# col_names = c("lockdown_duration",
+#     "total_duration",
+#     "model_tot_econ_loss",
+#     "model_trad_tot_econ_loss",
+#     "model_ml_tot_econ_loss")
+# 
+# sim_matrix = matrix(data=NA, nrow=nsim , ncol=5)
+# colnames(sim_matrix) = col_names
+# 
+# row_idx = 1
+# for (l_duration in lockdown_duration_vals){
+#   for (t_duration in total_duration_vals){
+#     res = simulation_ml_vs_diim(q0, A_star,c_star,x,lockdown_duration=l_duration, total_duration=t_duration)
+#     res = matrix(unlist(res), ncol=5)
+#     sim_matrix[row_idx,] = res
+#     
+#     row_idx = row_idx + 1
+#   }
+# }
 
-nsim = length(lockdown_duration_vals) * length(total_duration_vals)
-
-col_names = c("lockdown_duration",
-    "total_duration",
-    "model_tot_econ_loss",
-    "model_trad_tot_econ_loss",
-    "model_ml_tot_econ_loss")
-
-sim_matrix = matrix(data=NA, nrow=nsim , ncol=5)
-colnames(sim_matrix) = col_names
-
-row_idx = 1
-for (l_duration in lockdown_duration_vals){
-  for (t_duration in total_duration_vals){
-    res = simulation_ml_vs_diim(q0, A_star,c_star,x,lockdown_duration=l_duration, total_duration=t_duration)
-    res = matrix(unlist(res), ncol=5)
-    sim_matrix[row_idx,] = res
-    
-    row_idx = row_idx + 1
-  }
-}
-```
-
-```{r}
 
 ```
